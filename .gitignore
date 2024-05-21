@@ -51,4 +51,4 @@ Thumbs.db
 # build file
 http_server
 console.cgi
-socker_server
+socks_server
