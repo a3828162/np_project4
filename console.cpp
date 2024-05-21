@@ -1,304 +1,466 @@
 #include <cstdlib>
 #include <iostream>
+#include <fstream>
 #include <memory>
 #include <utility>
-#include <string.h>
-#include <fstream>
 #include <boost/asio.hpp>
-#include <boost/bind/bind.hpp>
 #include <boost/algorithm/string.hpp>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <cstring>
+#include <string>
+#include <vector>
+#include <map>
+#define f first
+#define s second
+#define ul unsigned long int
+#define uc unsigned char
 
-#define ACCEPT 90
-using namespace boost::asio::ip;
-using namespace boost::asio;
+using boost::asio::ip::tcp;
 using namespace std;
-using namespace boost::placeholders;
 
-
-struct HostInfo{
-    string host;
-    string port;
-    string file;
-    bool used = 0;
-};
-HostInfo hostInfo[5];
-
-string socksHost;
-string socksPort;
-io_context io_Context;
-
-class client : public enable_shared_from_this<client>{
-        public:
-            client(string id)
-                : id_(id){
-                    file_.open(("./test_case/" + hostInfo[stoi(id)].file), ios::in);
-                }
-            
-  		    void start(){
-    		    do_resolve();
-  		    }            
- 
-        private:
-            tcp::socket socket_{io_Context};
-            tcp::resolver resolver_{io_Context};
-            //tcp::resolver::query que_;
-            string id_;
-            fstream file_;
-            enum { max_length = 15000 };
-            char data_[max_length];
-            //unsigned char sock_[max_length];
-			array<unsigned char, 8> req_;
-            array<unsigned char, 8> reply_;
-            string data1 = "";            
-            string data2 = ""; 
-            string text = "";
-            string IP = "";
-
-            string do_replace(string t){
-                string ret = "";
-                for (int i=0; i<(int)t.length(); i++){
-                    if (t[i] == '\n')
-                        ret += "<br>";
-                    else if (t[i] == '\r')
-                        ret += "";
-                    else if (t[i] == '\'')
-                        ret += "&apos;";
-                    else if (t[i] == '\"')
-                        ret += "&quot;";  
-                    else if (t[i] == '&')
-                        ret += "&amp;";  
-                    else if (t[i] == '<')
-                        ret += "&lt;";
-                    else if (t[i] == '>')
-                        ret += "&gt;";
-                    else
-                        ret += t[i];
-                }
-                return ret;
-            }
-
-            void do_write(){
-                auto self(shared_from_this());
-                data2 = "";
-                getline(file_, data2);
-			    if(data2.find("exit") != string::npos){
-				    file_.close();
-				    hostInfo[stoi(id_)].used = 0;
-			    }
-                data2 = data2 + "\n";
-                text = do_replace(data2);
-                cout << "<script>document.getElementById('s" << id_ << "').innerHTML += '<b>" << text << "</b>';</script>"<<endl;
-                text = "";
-                //const char *mes = text.c_str();
-                async_write(socket_, buffer(data2.c_str(), data2.length()), [this, self](boost::system::error_code ec, size_t /*length*/){
-                    if (!ec){
-                        if (hostInfo[stoi(id_)].used == 1)
-                            do_read();
-                    }
-                });
-            }
-
-            void do_read(){
-                auto self(shared_from_this());
-                bzero(data_, max_length);
-                socket_.async_read_some(buffer(data_, max_length), [this, self](boost::system::error_code ec, size_t length){
-                    if (!ec){
-                        data1 = "";
-                        data1.assign(data_);
-					    bzero(data_, max_length);
-                        text = do_replace(data1);
-                        //strcpy(data_, text.c_str());
-                        //turn shell output to web page
-                        cout<<"<script>document.getElementById('s" << id_ << "').innerHTML += '"<< text <<"';</script>"<<endl;
-                        if (text.find("% ") != string::npos){
-                            do_write();
-                        }
-                        else{
-                            do_read();
-                        }                    
-                    }
-                });
-            }
-
-            void do_reply_handler(boost::system::error_code ec, size_t length){
-                if(!ec){
-				    if(reply_[1] == (unsigned char)ACCEPT)
-					    do_read();
-                }
-            }
-
-            void do_reply(){
-                reply_.fill(0);
-                socket_.async_read_some(buffer(reply_, reply_.size()), boost::bind(&client::do_reply_handler, shared_from_this(), _1, _2));
-            }           
-
-            void do_send_handler(boost::system::error_code ec, size_t length){
-                if(!ec){
-                    do_reply();
-                }
-            }
-
-            void do_send(){
-                //do_read();
-                req_[0] = (unsigned char)4;
-                req_[1] = (unsigned char)1;
-                req_[2] = (unsigned char)(stoi(hostInfo[stoi(id_)].port)/256);
-                req_[3] = (unsigned char)(stoi(hostInfo[stoi(id_)].port)%256);
-
-			    tcp::resolver resolver_(io_Context);
-			    tcp::resolver::query que(hostInfo[stoi(id_)].host , "");
-			    for(tcp::resolver::iterator it = resolver_.resolve(que); it != tcp::resolver::iterator(); ++it){
-				    tcp::endpoint ep = *it;
-			        if(ep.address().is_v4())
-				        IP = ep.address().to_string();
-			    }
-			    if(IP != ""){
-                    vector<string> temp;
-                    boost::split(temp, IP, boost::is_any_of("."), boost::token_compress_on);
-				    req_[4] = (unsigned char)(stoi(temp[0]));
-				    req_[5] = (unsigned char)(stoi(temp[1]));
-				    req_[6] = (unsigned char)(stoi(temp[2]));
-				    req_[7] = (unsigned char)(stoi(temp[3]));
-			    }
-			    socket_.async_write_some(buffer(req_.data(), req_.size()), boost::bind(&client::do_send_handler, shared_from_this(), _1, _2));                    
-            }
-
-            void do_connect(tcp::resolver::iterator it){
-                auto self(shared_from_this());
-                socket_.async_connect(*it, [this, self](const boost::system::error_code ec){
-                    if (!ec){
-                        do_send();
-                    }
-                });
-            }
-
-            void do_resolve(){
-                auto self(shared_from_this());
-                tcp::resolver::query que_(hostInfo[stoi(id_)].host, hostInfo[stoi(id_)].port);
-                resolver_.async_resolve(que_, [this, self](boost::system::error_code ec, tcp::resolver::iterator it){
-                    if(!ec){
-                        do_connect(it);
-                        //do_read();
-                    }
-                });
-            }             
+struct shellInfo{
+	string host;
+	string port;
+	string cmdFile;
 };
 
-void print_HTML(){
-	cout<<"content-type: text/html\r\n\r\n";
-	cout<<"<!DOCTYPE html>"<<endl;
-	cout<<"<html lang=i\"en\">"<<endl;
- 	cout<<"<head>"<<endl;
-    cout<<"<meta charset=\"UTF-8\" />"<<endl;
-	cout<<"<title>NP Project 3 Sample Console</title>"<<endl;
-	cout<<"<link"<<endl;
-	cout<<"rel=\"stylesheet\""<<endl;
-	cout<<"href=\"https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css\""<< endl;
-	cout<<"integrity=\"sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2\""<<endl;
-	cout<<"crossorigin=\"anonymous\""<<endl;
-	cout<<"/>"<<endl;
-	cout<<"<link"<<endl;
-	cout<<"href=\"https://fonts.googleapis.com/css?family=Source+Code+Pro\""<<endl;
-	cout<<"rel=\"stylesheet\""<<endl;
-	cout<<"/>"<<endl;
-	cout<<"<link"<<endl;
-	cout<<"rel=\"icon\""<<endl;
-	cout<<"type=\"image/png\""<<endl;
-	cout<<"href=\"https://cdn0.iconfinder.com/data/icons/small-n-flat/24/678068-terminal-512.png\""<<endl;
-	cout<<"/>"<<endl;
-    cout<<"<style>"<<endl;
-	cout<<"* {"<<endl;
-	cout<<"font-family: 'Source Code Pro', monospace;"<<endl;
-	cout<<"font-size: 1rem !important;"<<endl;
-	cout<<"}"<<endl;
-	cout<<"body {"<<endl;
-	cout<<"background-color: #212529;"<<endl;
-	cout<<"}"<<endl;
-	cout<<"pre {"<<endl;
-	cout<<"color: #cccccc;"<<endl;
-	cout<<"}"<<endl;
-	cout<<"b {"<<endl;
-	cout<<"color: #01b468;"<<endl;
-	cout<<"}"<<endl;
-	cout<<"</style>"<<endl;
-  	cout<<"</head>"<<endl;
-    cout<<"<body>"<<endl;
-	cout<<"<table class=\"table table-dark table-bordered\">"<<endl;
-	cout<<"<thead>"<<endl;
-	cout<<"<tr>"<<endl;
-	for(int i=0; i<5; i++){
-		if(hostInfo[i].used == 1){
-			cout<<"<th scope=\"col\">";
-			cout<<hostInfo[i].host<<":"<<hostInfo[i].port ;
-			cout<<"</th>"<<endl;
+map<string, string> env;
+map<ul, shellInfo> shellServer;
+shellInfo socksServer;
+vector<string> envSet = {"REQUEST_METHOD", "REQUEST_URI", "QUERY_STRING", "SERVER_PROTOCOL", "HTTP_HOST", "SERVER_ADDR", "SERVER_PORT", "REMOTE_ADDR", "REMOTE_PORT"};
+
+class shellClient : public std::enable_shared_from_this<shellClient>{
+	public:
+		shellClient(boost::asio::io_context& io_context, ul index) : resolver(io_context), socket_(io_context), index(index){}
+
+		void start(){
+			do_resolve();
 		}
-	}
-	cout<<"</tr>"<<endl;
-	cout<<"</thead>"<<endl;
-	cout<<"<tbody>"<<endl;
-	cout<<"<tr>"<<endl;
-	for(int i=0; i<5; i++){
-		if(hostInfo[i].used == 1){
-			cout<<"<td><pre id=\"s";
-			cout<<to_string(i);
-			cout<<"\" class=\"mb-0\"></pre></td>"<<endl;
+
+	private:
+		void do_resolve(){
+			auto self(shared_from_this());
+			resolver.async_resolve(
+				shellServer[index].host, shellServer[index].port,
+				[this, self](boost::system::error_code ec, tcp::resolver::results_type result){
+					if(!ec){
+						memset(data_, '\0', sizeof(data_));
+						endpoint_ = result;
+						do_connect();
+					}else{
+						cerr << "resolv" << '\n';
+						socket_.close();
+					}
+				}
+			);
 		}
+		
+		void do_connect(){
+			auto self(shared_from_this());
+			boost::asio::async_connect(
+					socket_, endpoint_,
+					[this, self](boost::system::error_code ec, tcp::endpoint ed){
+					if(!ec){
+						memset(data_, '\0', sizeof(data_));
+						in.open("./test_case/" + shellServer[index].cmdFile);
+						if(!in.is_open()){
+							cout << shellServer[index].cmdFile << " open fail\n";
+							socket_.close();
+						}
+						do_read();
+					}else{
+						cerr << "connect" << '\n';
+						socket_.close();
+					}
+				}
+			);
+		}
+	
+		void do_read(){
+			auto self(shared_from_this());
+			socket_.async_read_some(
+				boost::asio::buffer(data_, max_length), 
+				[this, self](boost::system::error_code ec, std::size_t length){
+					if (!ec){
+						if(length == 0) return;
+						data_[length] = '\0';
+						string msg = string(data_);
+						memset(data_, '\0', sizeof(data_));
+						output_message(msg);
+						if(msg.find("% ") != string::npos){
+							do_write();
+						}else{
+							do_read();
+						}
+					}else{
+						cerr << "read" << '\n';
+						socket_.close();
+					}
+				}
+			);
+		}
+
+		void do_write(){
+			auto self(shared_from_this());
+			string cmd;
+			getline(in, cmd);
+			cmd.push_back('\n');
+			output_command(cmd);
+			boost::asio::async_write(
+				socket_, boost::asio::buffer(cmd, cmd.size()),
+				[this, self](boost::system::error_code ec, std::size_t length){
+					if (!ec){
+						do_read();
+					}
+				}
+			);
+		}
+		
+		void output_message(string content){
+			escape(content);
+			cout << "<script>document.getElementById('s" << index << "').innerHTML += '" << content << "';</script>\n" << flush;
+		}
+		
+		void output_command(string content){
+			escape(content);
+			cout << "<script>document.getElementById('s" << index << "').innerHTML += '<b>" << content << "</b>';</script>\n" << flush;
+		}
+		
+		void escape(string &src){
+			boost::replace_all(src, "&", "&amp;");
+			boost::replace_all(src, "\r", "");
+			boost::replace_all(src, "\n", "&NewLine;");
+			boost::replace_all(src, "\'", "&apos;");
+			boost::replace_all(src, "\"", "&quot;");
+			boost::replace_all(src, "<", "&lt;");
+			boost::replace_all(src, ">", "&gt;");
+		}
+		tcp::resolver resolver;
+		tcp::socket socket_;
+		ul index;
+		tcp::resolver::results_type endpoint_;
+		ifstream in;
+		enum { max_length = 40960 };
+		char data_[max_length];
+};
+
+class socksClient : public std::enable_shared_from_this<socksClient>{
+	public:
+		socksClient(boost::asio::io_context& io_context, ul index) : resolver(io_context), socket_(io_context), index(index){}
+
+		void start(){
+			do_resolve();
+		}
+
+	private:
+		void do_resolve(){
+			auto self(shared_from_this());
+			resolver.async_resolve(
+				socksServer.host, socksServer.port,
+				[this, self](boost::system::error_code ec, tcp::resolver::results_type result){
+					if(!ec){
+						memset(data_, '\0', sizeof(data_));
+						endpoint_ = result;
+						do_connect();
+					}else{
+						cerr << "resolv" << '\n';
+						socket_.close();
+					}
+				}
+			);
+		}
+		
+		void do_connect(){
+			auto self(shared_from_this());
+			boost::asio::async_connect(
+					socket_, endpoint_,
+					[this, self](boost::system::error_code ec, tcp::endpoint ed){
+					if(!ec){
+						do_socks();
+						memset(data_, '\0', sizeof(data_));
+						in.open("./test_case/" + shellServer[index].cmdFile);
+						if(!in.is_open()){
+							cout << shellServer[index].cmdFile << " open fail\n";
+							socket_.close();
+						}
+						do_read();
+					}else{
+						cerr << "connect" << '\n';
+						socket_.close();
+					}
+				}
+			);
+		}
+		
+		void do_socks(){
+			string request;
+			uc reply[8];
+			//version=4
+			request.push_back(4);
+			//cd=1 connect
+			request.push_back(1);
+			//port
+			int port = stoi(shellServer[index].port);
+			int high = port / 256;
+			int low = port % 256;
+			request.push_back(high > 128 ? high - 256 : high);
+			request.push_back(low > 128 ? low - 256 : low);
+			//ip=0.0.0.x
+			request.push_back(0);
+			request.push_back(0);
+			request.push_back(0);
+			request.push_back(1);
+			//null
+			request.push_back(0);
+			//host
+			request += shellServer[index].host;
+			//null
+			request.push_back(0);
+			
+			boost::asio::write(socket_, boost::asio::buffer(request), boost::asio::transfer_all());
+			boost::asio::read(socket_, boost::asio::buffer(reply), boost::asio::transfer_all());
+			
+			if(reply[1] != 90){
+				cerr << "socks" << '\n';
+				socket_.close();
+			}
+		}
+		
+		void do_read(){
+			auto self(shared_from_this());
+			socket_.async_read_some(
+				boost::asio::buffer(data_, max_length), 
+				[this, self](boost::system::error_code ec, std::size_t length){
+					if (!ec){
+						if(length == 0) return;
+						data_[length] = '\0';
+						string msg = string(data_);
+						memset(data_, '\0', sizeof(data_));
+						output_message(msg);
+						if(msg.find("% ") != string::npos){
+							do_write();
+						}else{
+							do_read();
+						}
+					}else{
+						cerr << "read" << '\n';
+						socket_.close();
+					}
+				}
+			);
+		}
+
+		void do_write(){
+			auto self(shared_from_this());
+			string cmd;
+			getline(in, cmd);
+			cmd.push_back('\n');
+			output_command(cmd);
+			boost::asio::async_write(
+				socket_, boost::asio::buffer(cmd, cmd.size()),
+				[this, self](boost::system::error_code ec, std::size_t length){
+					if (!ec){
+						do_read();
+					}
+				}
+			);
+		}
+		
+		void output_message(string content){
+			escape(content);
+			cout << "<script>document.getElementById('s" << index << "').innerHTML += '" << content << "';</script>\n" << flush;
+		}
+		
+		void output_command(string content){
+			escape(content);
+			cout << "<script>document.getElementById('s" << index << "').innerHTML += '<b>" << content << "</b>';</script>\n" << flush;
+		}
+		
+		void escape(string &src){
+			boost::replace_all(src, "&", "&amp;");
+			boost::replace_all(src, "\r", "");
+			boost::replace_all(src, "\n", "&NewLine;");
+			boost::replace_all(src, "\'", "&apos;");
+			boost::replace_all(src, "\"", "&quot;");
+			boost::replace_all(src, "<", "&lt;");
+			boost::replace_all(src, ">", "&gt;");
+		}
+		tcp::resolver resolver;
+		tcp::socket socket_;
+		ul index;
+		tcp::resolver::results_type endpoint_;
+		ifstream in;
+		enum { max_length = 40960 };
+		char data_[max_length];
+};
+
+void getEnv(){
+	for(auto e : envSet){
+		env[e] = string(getenv(e.c_str()));
 	}
-	cout<<"</tr>"<<endl;
-	cout<<"</tbody>"<<endl;
-	cout<<"</table>"<<endl;
-	cout<<"</body>"<<endl;
-	cout<<"</html>"<<endl;
 }
 
-void parse_qString(){
-    string qString = getenv("QUERY_STRING");
-    vector<string> c1, c2;
-	boost::split(c1, qString, boost::is_any_of("&"), boost::token_compress_on);
-
-	for(int i=0 ; i<5 ; i++){
-		for(int j=0 ; j<3 ; j++){
-            boost::split(c2, c1[(i*3)+j], boost::is_any_of("="), boost::token_compress_on);
-            if(c2[1] == ""){
-		        hostInfo[i].used = 0;
-		        break;
-	        }
-	        else{
-		        hostInfo[i].used = 1;
-            }
-
-			if(j == 0)
-				hostInfo[i].host = c2[1];
-			else if(j == 1)
-				hostInfo[i].port = c2[1];
-			else if(j == 2)
-				hostInfo[i].file = c2[1];
-		}		
+void splitArgument(vector<string> &dst, string &src){
+	dst.clear();
+	string arg;
+	unsigned int cur = 0, charType = 0;
+	for(; cur < src.size(); cur++){
+		if(src[cur] == '='){
+			if(charType == 1){
+				dst.push_back(arg);
+				arg.clear();
+				charType = 0;
+			}
+		}else if(src[cur] == '\r'){
+			continue;
+		}else{
+			if(charType == 0) charType = 1;
+			arg.push_back(src[cur]);
+		}
 	}
-    //get the info
-    vector<string> c3, c4;
-    boost::split(c3, c1[15], boost::is_any_of("="),boost::token_compress_on);
-	vector<string> socksHostValue = c3;
-	socksHost = socksHostValue[1];
-    boost::split(c4, c1[16], boost::is_any_of("="),boost::token_compress_on);
-	vector<string> socksPortValue = c4;
-	socksPort = socksPortValue[1];
+	if(arg.size() != 0){
+		dst.push_back(arg);
+	}
+}
+
+void splitline(vector<vector<string>> &dst, string src){
+	dst.clear();
+	vector<string> tmp;
+	unsigned int begin = 0, cur = 0;
+	for(; cur < src.size(); cur++){
+		if(src[cur] == '&'){
+			tmp.push_back(src.substr(begin, cur - begin));
+			begin = cur + 1;
+		}
+	}
+	if(begin != src.size()) tmp.push_back(src.substr(begin));
+	dst.resize(tmp.size());
+	int i = 0;
+	for(string cmd : tmp){
+		splitArgument(dst[i], cmd);
+		i++;
+	}
+}
+
+void getShellServerInfo(){
+	vector<vector<string>> query;
+	splitline(query, env["QUERY_STRING"]);
+	for(ul i = 0; i < query.size(); i++){
+		if(query[i].size() != 2) continue;
+		char type = query[i][0][0];
+		ul index = query[i][0][1] - '0';
+		switch(type){
+			case 'h':{
+				shellServer[index].host = query[i][1];
+				break;
+			}
+			case 'p':{
+				shellServer[index].port = query[i][1];
+				break;
+			}
+			case 'f':{
+				shellServer[index].cmdFile = query[i][1];
+				break;
+			}
+			case 's':{
+				char type2 = query[i][0][1];
+				switch(type2){
+					case 'h':{
+						socksServer.host = query[i][1];
+						break;
+					}
+					case 'p':{
+						socksServer.port = query[i][1];
+						break;
+					}
+				}
+				break;
+			}
+		}
+	}
+}
+
+void http(){
+	cout << "<!DOCTYPE html>" 																							<< '\n';
+	cout << "<html lang=\"en\">" 																						<< '\n';
+	cout << "  <head>" 																									<< '\n';
+	cout << "    <meta charset=\"UTF-8\" />" 																			<< '\n';
+	cout << "    <title>NP Project 3 Sample Console</title>" 															<< '\n';
+	cout << "    <link" 																								<< '\n';
+	cout << "      rel=\"stylesheet\"" 																					<< '\n';
+	cout << "      href=\"https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css\"" 					<< '\n';
+	cout << "      integrity=\"sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2\"" 				<< '\n';
+	cout << "      crossorigin=\"anonymous\"" 																			<< '\n';
+	cout << "    />" 																									<< '\n';
+	cout << "    <link" 																								<< '\n';
+	cout << "      href=\"https://fonts.googleapis.com/css?family=Source+Code+Pro\"" 									<< '\n';
+	cout << "      rel=\"stylesheet\"" 																					<< '\n';
+	cout << "    />" 																									<< '\n';
+	cout << "    <link" 																								<< '\n';
+	cout << "      rel=\"icon\"" 																						<< '\n';
+	cout << "      type=\"image/png\"" 																					<< '\n';
+	cout << "      href=\"https://cdn0.iconfinder.com/data/icons/small-n-flat/24/678068-terminal-512.png\"" 			<< '\n';
+	cout << "    />" 																									<< '\n';
+	cout << "    <style>" 																								<< '\n';
+	cout << "      * {" 																								<< '\n';
+	cout << "        font-family: 'Source Code Pro', monospace;" 														<< '\n';
+	cout << "        font-size: 1rem !important;" 																		<< '\n';
+	cout << "      }" 																									<< '\n';
+	cout << "      body {" 																								<< '\n';
+	cout << "        background-color: #212529;" 																		<< '\n';
+	cout << "      }" 																									<< '\n';
+	cout << "      pre {" 																								<< '\n';
+	cout << "        color: #cccccc;" 																					<< '\n';
+	cout << "      }" 																									<< '\n';
+	cout << "      b {" 																								<< '\n';
+	cout << "        color: #01b468;" 																					<< '\n';
+	cout << "      }" 																									<< '\n';
+	cout << "    </style>" 																								<< '\n';
+	cout << "  </head>" 																								<< '\n';
+	cout << "  <body>" 																									<< '\n';
+	cout << "    <table class=\"table table-dark table-bordered\">" 													<< '\n';
+	cout << "      <thead>" 																							<< '\n';
+	cout << "        <tr>" 																								<< '\n';
+	for(ul i = 0; i < shellServer.size(); i++){
+		cout << "          <th scope=\"col\">" << shellServer[i].host << ":" << shellServer[i].port << "</th>"			<< '\n';
+	}
+	cout << "        </tr>" 																							<< '\n';
+	cout << "      </thead>" 																							<< '\n';
+	cout << "      <tbody>" 																							<< '\n';
+	cout << "        <tr>" 																								<< '\n';
+	for(ul i = 0; i < shellServer.size(); i++){
+		cout << "          <td><pre id=\"s" << i << "\" class=\"mb-0\"></pre></td>" 									<< '\n';
+	}
+	cout << "        </tr>" 																							<< '\n';
+	cout << "      </tbody>" 																							<< '\n';
+	cout << "    </table>" 																								<< '\n';
+	cout << "  </body>" 																								<< '\n';
+	cout << "</html>" 																									<< '\n';
+	cout << flush;
 }
 
 int main(int argc, char* argv[]){
-    try{
-        parse_qString();
-        print_HTML();     
-        for (int i=0; i<5; i++){
-            if (hostInfo[i].used == 1)
-                make_shared<client>(to_string(i))->start();         
-        }
-        io_Context.run();
-    } 
-    catch (exception& e){
-        cerr << "Exception: " << e.what() << "\n";
-    }
-    return 0;
+	try{
+		cout << "Content-type: text/html\r\n\r\n" << flush;
+		getEnv();
+		getShellServerInfo();
+		http();
+		boost::asio::io_context io_context;
+		if(socksServer.host != ""){
+			for(ul i = 0; i < shellServer.size(); i++){
+				std::make_shared<socksClient>(io_context, i)->start();
+			}
+		}else{
+			for(ul i = 0; i < shellServer.size(); i++){
+				std::make_shared<shellClient>(io_context, i)->start();
+			}
+		}
+		io_context.run();
+	}catch (std::exception& e){
+		std::cerr << "Exception: " << e.what() << "\n";
+	}
+	return 0;
 }
 
 // #include <boost/algorithm/string.hpp>
