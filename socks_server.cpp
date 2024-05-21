@@ -180,7 +180,10 @@ class session : public std::enable_shared_from_this<session>{
 			if(request.reply != "Firewall") return;
 			request.reply = "Reject";
 			ifstream in("./socks.conf");
-			if(!in.is_open()) return;
+			if(!in.is_open()){
+				cout << "File open fail!\n";
+				return;
+			} 
 			string rule = "";
 			while(getline(in, rule)){
 				vector<string> tmp;
