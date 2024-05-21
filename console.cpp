@@ -223,7 +223,7 @@ class shellClient : public std::enable_shared_from_this<shellClient> {
     char data_[max_length];
 };
 
-class socksClient : public std::enable_shared_from_this<shellClient> {
+class socksClient : public std::enable_shared_from_this<socksClient> {
 
   public:
     socksClient(boost::asio::io_context &io_context, int index)
@@ -415,7 +415,7 @@ int main() {
         boost::asio::io_context io_context;
         if (sockServer.hostName != "" && sockServer.port != "") {
             for (int i = 0; i < clients.size(); i++) {
-                std::make_shared<shellClient>(io_context, i)->start();
+                std::make_shared<socksClient>(io_context, i)->start();
             }
         } else {
             for (int i = 0; i < clients.size(); i++) {
