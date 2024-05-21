@@ -48,3 +48,7 @@ Thumbs.db
 *.mov
 *.wmv
 
+# build file
+http_server
+console.cgi
+socker_server
