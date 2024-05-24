@@ -172,6 +172,7 @@ class shellClient : public std::enable_shared_from_this<shellClient> {
         request[1] = 0x01;
 
         // port
+        
         request[2] = stoi(clients[index].port) / 256;
         request[3] = stoi(clients[index].port) % 256;
         

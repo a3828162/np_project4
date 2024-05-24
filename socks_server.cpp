@@ -14,13 +14,13 @@
 using boost::asio::ip::tcp;
 using namespace std;
 
-struct sock4AStruct {
+struct socksRequestStruct {
     int vn;
     int cd;
-    string srcIP;
-    string srcPort;
-    string dstIP;
-    string dstPort;
+    string s_IP;
+    string s_Port;
+    string d_IP;
+    string d_Port;
     string command;
     string reply;
 };
@@ -28,13 +28,23 @@ struct sock4AStruct {
 class session : public std::enable_shared_from_this<session> {
   public:
     session(tcp::socket socket, boost::asio::io_context &io_context)
-        : socketSrc(std::move(socket)), socketTarget(io_context),
-          io_context_(io_context) {}
+        : socketSrc(std::move(socket)), socketDst(io_context),
+          io_context_(io_context), resolver_(io_context) {}
 
-    void start() { do_request(); }
+    void start() { do_read(); }
 
   private:
-    void do_request() {
+    
+    void do_print_info(){
+            cout << "<S_IP>: " << request.s_IP << '\n' << flush;
+            cout << "<S_PORT>: " << request.s_Port << '\n' << flush;
+            cout << "<D_IP>: " << request.d_IP << '\n' << flush;
+            cout << "<D_PORT>: " << request.d_Port << '\n' << flush;
+            cout << "<Command>: " << request.command << '\n' << flush;
+            cout << "<Reply>: " << request.reply << '\n' << flush;
+    }
+
+    void do_read() {
         auto self(shared_from_this());
         memset(data_, '\0', sizeof(data_));
         socketSrc.async_read_some(
@@ -42,32 +52,39 @@ class session : public std::enable_shared_from_this<session> {
             [this, self](boost::system::error_code ec, std::size_t length) {
                 if (!ec) {
                     if(length == 0) exit(0);
-                    cout << "-------------\n";
-                    cout << "length: " << length << endl;
-                    for (int i=0;i<length;++i){
-                        cout << (int)data_[i] << ' ';
-                    }
-                    cout << "\n-------------\n";
-                    cout << to_string((unsigned int)(data_[2] << 8) | data_[3]);
-                    cout << "\n--------------\n";
+                    // cout << "-------------\n";
+                    // cout << "length: " << length << endl;
+                    // for (int i=0;i<length;++i){
+                    //     cout << (int)data_[i] << ' ';
+                    // }
+                    // cout << "\n-------------\n";
+                    // cout << to_string((unsigned int)(data_[2] << 8) | data_[3]);
+                    // cout << "\n--------------\n";
 
                     parse_request(length);
                     if(request.reply != "Reject"){
                         install_firewall_rule();
                     }
 
-                    cout << "<S_IP>: " << request.srcIP << '\n' << flush;
-                    cout << "<S_PORT>: " << request.srcPort << '\n' << flush;
-                    cout << "<D_IP>: " << request.dstIP << '\n' << flush;
-                    cout << "<D_PORT>: " << request.dstPort << '\n' << flush;
-                    cout << "<Command>: " << request.command << '\n' << flush;
-                    cout << "<Reply>: " << request.reply << '\n' << flush;
+                    do_print_info();
+                    do_resolver();
+                }
+            });
+    }
 
+    void do_resolver() {
+        auto self(shared_from_this());
+        resolver_.async_resolve(
+            request.d_IP, request.d_Port,
+            [this, self](boost::system::error_code ec,
+                         tcp::resolver::results_type result) {
+                if (!ec) {
                     replyFormat[0] = 0; 
+                    request.d_IP = result->endpoint().address().to_string();
                     if (request.reply == "Accept") {
                         replyFormat[1] = 90;
                         if (request.cd == 1) {
-                            do_connect();
+                            do_connect(result);
                         } else {
                             do_bind();
                         }
@@ -77,9 +94,46 @@ class session : public std::enable_shared_from_this<session> {
                         socketSrc.close();
                         exit(0);
                     }
+                    //
+                } else {
+                    cerr << "resolv error code: " << ec.message() << '\n';
                 }
             });
     }
+
+    void do_connect(tcp::resolver::results_type result) {
+        auto self(shared_from_this());
+        boost::asio::async_connect(
+            socketDst, result,
+            [this, self](boost::system::error_code ec, tcp::endpoint ed) {
+                if (!ec) {
+                    do_write_reply();
+                    do_read_src();
+                    do_read_dst();
+                } else {
+                    replyFormat[1] = 91;
+                    do_write_reply();
+                    close_both_side_socket();
+                    exit(0);
+                }
+            });
+    }
+
+    void do_bind() {
+        // give port 0 it will randomely assign a port
+        tcp::acceptor acceptor_(io_context_, tcp::endpoint(tcp::v4(), 0));
+        acceptor_.listen();
+        unsigned int port = acceptor_.local_endpoint().port();
+        cout << "port: " << port << '\n' << flush;
+        replyFormat[2] = (port >> 8) & 0x000000FF;
+        replyFormat[3] = port & 0x000000FF;
+        do_write_reply();
+        acceptor_.accept(socketDst);
+        do_write_reply();
+        do_read_src();
+        do_read_dst();
+    }
+
 
     void do_write_reply() {
         auto self(shared_from_this());
@@ -91,93 +145,67 @@ class session : public std::enable_shared_from_this<session> {
             });
     }
 
-    void do_connect() {
-        auto self(shared_from_this());
-        tcp::resolver resolver_(io_context_);
-        tcp::resolver::results_type endpoint_ =
-            resolver_.resolve(request.dstIP, request.dstPort);
-        boost::asio::async_connect(
-            socketTarget, endpoint_,
-            [this, self](boost::system::error_code ec, tcp::endpoint ed) {
-                if (!ec) {
-                    do_write_reply();
-                    do_read_CGI();
-                    do_read_target();
-                } else {
-                    replyFormat[1] = 91;
-                    do_write_reply();
-                    socketSrc.close();
-                    socketTarget.close();
-                }
-            });
-    }
-
-    void do_bind() {
-        tcp::acceptor acceptor_(io_context_, tcp::endpoint(tcp::v4(), 0));
-        acceptor_.listen();
-        unsigned int port = acceptor_.local_endpoint().port();
-        cout << "port: " << port << '\n' << flush;
-        replyFormat[2] = (port >> 8) & 0x000000FF;
-        replyFormat[3] = port & 0x000000FF;
-        do_write_reply();
-        acceptor_.accept(socketTarget);
-        do_write_reply();
-        do_read_CGI();
-        do_read_target();
-    }
-
-    void do_read_CGI() {
+    void do_read_src() {
         auto self(shared_from_this());
         memset(data_, '\0', sizeof(data_));
         socketSrc.async_read_some(
             boost::asio::buffer(data_, max_length),
             [this, self](boost::system::error_code ec, std::size_t length) {
                 if (!ec) {
-                    do_write_target(length);
+                    do_write_dst(length);
                 } else {
-                    socketSrc.close();
-                    socketTarget.close();
+                    close_both_side_socket();
                     exit(0);
                 }
             });
     }
 
-    void do_read_target() {
+    void do_read_dst() {
         auto self(shared_from_this());
         memset(data_, '\0', sizeof(data_));
-        socketTarget.async_read_some(
+        socketDst.async_read_some(
             boost::asio::buffer(data_, max_length),
             [this, self](boost::system::error_code ec, std::size_t length) {
                 if (!ec) {
-                    do_write_CGI(length);
+                    do_write_src(length);
                 } else {
-                    socketSrc.close();
-                    socketTarget.close();
+                    close_both_side_socket();
                     exit(0);
                 }
             });
     }
 
-    void do_write_CGI(size_t length) {
+    void do_write_src(size_t length) {
         auto self(shared_from_this());
         boost::asio::async_write(
             socketSrc, boost::asio::buffer(data_, length),
             [this, self](boost::system::error_code ec, size_t length) {
                 if (!ec) {
-                    do_read_target();
+                    do_read_dst();
+                } else {
+                    close_both_side_socket();
+                    exit(0);
                 }
             });
     }
 
-    void do_write_target(size_t length) {
+    void do_write_dst(size_t length) {
         auto self(shared_from_this());
         boost::asio::async_write(
-            socketTarget, boost::asio::buffer(data_, length),
+            socketDst, boost::asio::buffer(data_, length),
             [this, self](boost::system::error_code ec, size_t length) {
                 if (!ec) {
-                    do_read_CGI();
+                    do_read_src();
+                } else {
+                    close_both_side_socket();
+                    exit(0);
                 }
             });
+    }
+
+    void close_both_side_socket(){
+        socketSrc.close();
+        socketDst.close();
     }
 
     void install_firewall_rule() {
@@ -198,24 +226,27 @@ class session : public std::enable_shared_from_this<session> {
             vector<string> ipFirewall;
             vector<string> ipDst;
             split_string(ipFirewall, tmp[2], '.');
-            split_string(ipDst, request.dstIP, '.');
-            bool permit = true;
-            for (int i = 0; i < 4; i++) {
-                
-                if (ipFirewall[i] == "*")
-                    continue;
-                if (ipFirewall[i] != ipDst[i]) {
-                    permit = false;
-                    break;
-                }
-            }
-            //cout << "permit: " << permit << '\n' << flush;
-            if (permit) {
+            split_string(ipDst, request.d_IP, '.');
+
+            if (adsl(ipFirewall, ipDst)) {
                 request.reply = "Accept";
                 break;
             }
         }
     }
+
+    bool adsl(vector<string> &ipFirewall, vector<string> &ipDst ){
+        bool accept = true;
+        for (int i = 0; i < ipFirewall.size(); i++) {
+            if (ipFirewall[i] == "*")
+                continue;
+            if (ipFirewall[i] != ipDst[i]) {
+                accept = false;
+                break;
+            }
+        }
+        return accept;
+    }    
 
     void split_string(vector<string> &output, string &input, char key) {
         stringstream ss(input);
@@ -242,7 +273,6 @@ class session : public std::enable_shared_from_this<session> {
         }
             
         request.cd = data_[1];
-        //request.command = request.cd == 1 ? "CONNECT" : "BIND";
         if(request.cd == 1){
             request.command = "CONNECT";
         } else if(request.cd == 2){
@@ -253,33 +283,30 @@ class session : public std::enable_shared_from_this<session> {
             return;
         }
 
-        request.dstPort = to_string((unsigned int)(data_[2] << 8) | data_[3]);
+        request.s_IP = socketSrc.remote_endpoint().address().to_string();
+        request.s_Port = to_string(socketSrc.remote_endpoint().port());
+
         if (data_[4] == 0 && data_[5] == 0 && data_[6] == 0 && data_[7] != 0) { // sock4A
             int index = 8;
             while (data_[index] != 0)
                 index++;
             index++;
-            string domain = "";
+            request.d_IP = "";
             while (data_[index] != 0)
-                domain.push_back(data_[index++]);
-            tcp::resolver resolver_(io_context_);
-            tcp::endpoint endpoint_ =
-                resolver_.resolve(domain, request.dstPort)->endpoint();
-            request.dstIP = endpoint_.address().to_string();
+                request.d_IP.push_back(data_[index++]);
+            
         } else { // sock4
-            char ipv4[20];
-            snprintf(ipv4, 20, "%d.%d.%d.%d", data_[4], data_[5], data_[6],
-                     data_[7]);
-            request.dstIP = string(ipv4);
+            request.d_IP = to_string((unsigned int)data_[4]) + "." + to_string((unsigned int)data_[5])
+                             + "." + to_string((unsigned int)data_[6]) + "." + to_string((unsigned int)data_[7]);
         }
-        request.srcIP = socketSrc.remote_endpoint().address().to_string();
-        request.srcPort = to_string(socketSrc.remote_endpoint().port());
+        request.d_Port = to_string((unsigned int)(data_[2] << 8) | data_[3]);
     }
 
     tcp::socket socketSrc;
-    tcp::socket socketTarget;
+    tcp::socket socketDst;
+    tcp::resolver resolver_;
     boost::asio::io_context &io_context_;
-    sock4AStruct request;
+    socksRequestStruct request;
     unsigned char replyFormat[8];
     enum { max_length = 10240 };
     unsigned char data_[max_length];
@@ -291,17 +318,17 @@ class server {
         : acceptor_(io_context, tcp::endpoint(tcp::v4(), port)),
           io_context_(io_context), signal_(io_context, SIGCHLD) {
         acceptor_.set_option(boost::asio::socket_base::reuse_address(true));
-        signal_handler();
+        signal_child_handler();
         do_accept();
     }
 
   private:
-    void signal_handler() {
+    void signal_child_handler() {
         signal_.async_wait([this](boost::system::error_code ec, int signo) {
             if (acceptor_.is_open()) {
                 while (waitpid(-1, NULL, WNOHANG) > 0)
                     ;
-                signal_handler();
+                signal_child_handler();
             }
         });
     }

@@ -61,8 +61,8 @@ class session : public std::enable_shared_from_this<session> {
                         }
                     } else if (child_pid > 0) {
                         socket_.close();
-                        while (waitpid(-1, NULL, WNOHANG) > 0)
-                            ;
+                        //while (waitpid(-1, NULL, WNOHANG) > 0)
+                        //    ;
                         env.clear();
                     }
                 }
