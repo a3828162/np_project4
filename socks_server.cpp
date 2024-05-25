@@ -66,7 +66,6 @@ class session : public std::enable_shared_from_this<session> {
                         install_firewall_rule();
                     }
 
-                    do_print_info();
                     do_resolver();
                 }
             });
@@ -81,6 +80,7 @@ class session : public std::enable_shared_from_this<session> {
                 if (!ec) {
                     replyFormat[0] = 0; 
                     request.d_IP = result->endpoint().address().to_string();
+                    do_print_info();
                     if (request.reply == "Accept") {
                         replyFormat[1] = 90;
                         if (request.cd == 1) {
