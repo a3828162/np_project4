@@ -3,6 +3,7 @@
         "any": "cpp",
         "optional": "cpp",
         "variant": "cpp",
-        "*.ipp": "cpp"
+        "*.ipp": "cpp",
+        "ostream": "cpp"
     }
 }

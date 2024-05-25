@@ -96,7 +96,7 @@ class session : public std::enable_shared_from_this<session> {
                     }
                     //
                 } else {
-                    cerr << "resolv error code: " << ec.message() << '\n';
+                    // cerr << "resolv error code: " << ec.message() << '\n';
                 }
             });
     }
@@ -124,7 +124,7 @@ class session : public std::enable_shared_from_this<session> {
         tcp::acceptor acceptor_(io_context_, tcp::endpoint(tcp::v4(), 0));
         acceptor_.listen();
         unsigned int port = acceptor_.local_endpoint().port();
-        cout << "port: " << port << '\n' << flush;
+        //cout << "port: " << port << '\n' << flush;
         replyFormat[2] = (port >> 8) & 0x000000FF;
         replyFormat[3] = port & 0x000000FF;
         do_write_reply();
@@ -212,7 +212,7 @@ class session : public std::enable_shared_from_this<session> {
         request.reply = "Reject";
         ifstream in("./socks.conf");
         if (!in.is_open()) {
-            cout << "File open fail!\n";
+            //cout << "File open fail!\n";
             return;
         }
         string rule = "";
@@ -261,14 +261,14 @@ class session : public std::enable_shared_from_this<session> {
 
         if (length < 9) {
             request.reply = "Reject";
-            cerr << "not match sock4 least length\n";
+            // cerr << "not match sock4 least length\n";
             return;
         } 
 
         request.vn = data_[0];
         if (request.vn != 4) {
             request.reply = "Reject";
-            cerr << "version not 4\n";
+            // cerr << "version not 4\n";
             return;
         }
             
@@ -279,7 +279,7 @@ class session : public std::enable_shared_from_this<session> {
             request.command = "BIND";
         } else {
             request.reply = "Reject";
-            cerr << "cd not 1 or 2\n";
+            // cerr << "cd not 1 or 2\n";
             return;
         }
 
