@@ -139,29 +139,10 @@ class session : public std::enable_shared_from_this<session> {
         replyFormat[2] = (port >> 8) & 0x000000FF;
         replyFormat[3] = port & 0x000000FF;
         do_write_reply();
-        // acceptor_.accept(socketDst, ec);
-        do_accept();
+        acceptor_.accept(socketDst, ec);
         do_write_reply();
         do_read_src();
         do_read_dst();
-    }
-
-    void do_accept() {
-        auto self(shared_from_this());
-        acceptor_.async_accept(
-            [this, self](boost::system::error_code ec, tcp::socket socket) {
-                if (!ec) {
-                    socketDst = std::move(socket);
-                    do_write_reply();
-                    do_read_src();
-                    do_read_dst();
-                } else {
-                    socket.close();
-                    socketSrc.close();
-                    acceptor_.close();
-                    exit(0);
-                }
-            });
     }
 
     void do_write_reply() {
