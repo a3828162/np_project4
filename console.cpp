@@ -149,7 +149,11 @@ class shellClient : public std::enable_shared_from_this<shellClient> {
                 if (!ec) {
 
                     do_socks();
-
+                    in.open("./test_case/" + clients[index].testFile);
+                    if (!in.is_open()) {
+                        cout << clients[index].testFile << " open fail\n";
+                        socket_.close();
+                    }
                     do_read();
                 } else {
                     cerr << "connect error code: " << ec.message() << '\n';
@@ -195,59 +199,20 @@ class shellClient : public std::enable_shared_from_this<shellClient> {
             cerr << (int)request[i] << " ";
         }
         cerr << "\nend -----------------\n";
-        do_send_request(request, size);
-        // boost::asio::write(socket_, boost::asio::buffer(request, size),
-        //                    boost::asio::transfer_all());
-        // boost::asio::read(socket_, boost::asio::buffer(reply),
-        //                   boost::asio::transfer_all());
 
-        /*if (reply[1] != 90) {
+        boost::asio::write(socket_, boost::asio::buffer(request, size),
+                           boost::asio::transfer_all());
+        boost::asio::read(socket_, boost::asio::buffer(reply),
+                          boost::asio::transfer_all());
+
+        if (reply[1] != 90) {
             cerr << "connection reject\n";
             socket_.close();
-        }*/
-    }
-
-    void do_send_request(unsigned char request[4096], int &size) {
-        auto self(shared_from_this());
-
-        boost::asio::async_write(
-            socket_, boost::asio::buffer(request, size),
-            [this, self](boost::system::error_code ec, std::size_t length) {
-                if (!ec) {
-                    do_receive_reply();
-                } else {
-                    socket_.close();
-                }
-            });
-    }
-
-    void do_receive_reply() {
-        auto self(shared_from_this());
-        unsigned char reply[8];
-        boost::asio::async_read(
-            socket_, boost::asio::buffer(reply, 8),
-            [this, self, reply](boost::system::error_code ec,
-                                std::size_t length) {
-                if (!ec) {
-                    if (reply[1] != 90) {
-                        cerr << "connection reject\n";
-                        socket_.close();
-                    } else {
-                        do_read();
-                    }
-                } else {
-                    socket_.close();
-                }
-            });
+        }
     }
 
     void do_read() {
         auto self(shared_from_this());
-        in.open("./test_case/" + clients[index].testFile);
-        if (!in.is_open()) {
-            cout << clients[index].testFile << " open fail\n";
-            socket_.close();
-        }
         socket_.async_read_some(
             boost::asio::buffer(data_, max_length),
             [this, self](boost::system::error_code ec, std::size_t length) {
