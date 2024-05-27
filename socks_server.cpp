@@ -111,12 +111,8 @@ class session : public std::enable_shared_from_this<session> {
                     // cout << "\n-------------\n";
                     // cout << to_string((unsigned int)(data_[2] << 8) |
                     // data_[3]); cout << "\n--------------\n";
-                    cout << "Before Reply: " << request.reply << '\n';
+                    // cout << "Before Reply: " << request.reply << '\n';
                     parse_request(length);
-                    cout << "Reply: " << request.reply << '\n';
-                    if (request.reply != "Reject") {
-                        install_firewall_rule();
-                    }
 
                     do_resolver();
                 }
@@ -130,6 +126,9 @@ class session : public std::enable_shared_from_this<session> {
             [this, self](boost::system::error_code ec,
                          tcp::resolver::results_type result) {
                 if (!ec) {
+                    if (request.reply != "Reject") {
+                        install_firewall_rule();
+                    }
                     replyFormat[0] = 0;
                     request.d_IP = result->endpoint().address().to_string();
                     do_print_info();
@@ -303,8 +302,6 @@ class session : public std::enable_shared_from_this<session> {
             if (ipFirewall[i] == "*")
                 continue;
             if (ipFirewall[i] != ipDst[i]) {
-                cout << ipFirewall[i] << " : " << ipDst[i] << '\n';
-                cout << "not match firewall\n";
                 accept = false;
                 break;
             }
