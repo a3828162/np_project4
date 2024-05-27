@@ -141,18 +141,15 @@ class shellClient : public std::enable_shared_from_this<shellClient> {
 
     void do_connect(tcp::resolver::results_type &result) {
         auto self(shared_from_this());
-		if(sockServer.hostName ==""&&sockServer.port == "") return;
+        if (sockServer.hostName == "" && sockServer.port == "")
+            return;
         boost::asio::async_connect(
             socket_, result,
             [this, self](boost::system::error_code ec, tcp::endpoint ed) {
                 if (!ec) {
-					
-					do_socks();
-                    in.open("./test_case/" + clients[index].testFile);
-                    if (!in.is_open()) {
-                        cout << clients[index].testFile << " open fail\n";
-                        socket_.close();
-                    }
+
+                    do_socks();
+
                     do_read();
                 } else {
                     cerr << "connect error code: " << ec.message() << '\n';
@@ -161,7 +158,7 @@ class shellClient : public std::enable_shared_from_this<shellClient> {
             });
     }
 
-	void do_socks() {
+    void do_socks() {
         unsigned char request[4096];
         unsigned char reply[8];
 
@@ -172,10 +169,10 @@ class shellClient : public std::enable_shared_from_this<shellClient> {
         request[1] = 0x01;
 
         // port
-        
+
         request[2] = stoi(clients[index].port) / 256;
         request[3] = stoi(clients[index].port) % 256;
-        
+
         // ip=0.0.0.x
         request[4] = 0x00;
         request[5] = 0x00;
@@ -187,32 +184,70 @@ class shellClient : public std::enable_shared_from_this<shellClient> {
 
         // host
         int size = 9;
-        for(auto &s : clients[index].hostName){
+        for (auto &s : clients[index].hostName) {
             request[size++] = s;
         }
         // null
         request[size++] = 0x00;
-        
-		cerr << "start ----------------\n";
-		for(int i=0;i<size;i++){
-			cerr << (int)request[i] << " ";
-		}
-		cerr << "\nend -----------------\n";
 
-        boost::asio::write(socket_, boost::asio::buffer(request, size),
-                           boost::asio::transfer_all());
-        boost::asio::read(socket_, boost::asio::buffer(reply),
-                          boost::asio::transfer_all());
+        cerr << "start ----------------\n";
+        for (int i = 0; i < size; i++) {
+            cerr << (int)request[i] << " ";
+        }
+        cerr << "\nend -----------------\n";
+        do_send_request(request, size);
+        // boost::asio::write(socket_, boost::asio::buffer(request, size),
+        //                    boost::asio::transfer_all());
+        // boost::asio::read(socket_, boost::asio::buffer(reply),
+        //                   boost::asio::transfer_all());
 
-        if (reply[1] != 90) {
+        /*if (reply[1] != 90) {
             cerr << "connection reject\n";
             socket_.close();
-        }
+        }*/
+    }
 
+    void do_send_request(unsigned char request[4096], int &size) {
+        auto self(shared_from_this());
+
+        boost::asio::async_write(
+            socket_, boost::asio::buffer(request, size),
+            [this, self](boost::system::error_code ec, std::size_t length) {
+                if (!ec) {
+                    do_receive_reply();
+                } else {
+                    socket_.close();
+                }
+            });
+    }
+
+    void do_receive_reply() {
+        auto self(shared_from_this());
+        unsigned char reply[8];
+        boost::asio::async_read(
+            socket_, boost::asio::buffer(reply, 8),
+            [this, self, reply](boost::system::error_code ec,
+                                std::size_t length) {
+                if (!ec) {
+                    if (reply[1] != 90) {
+                        cerr << "connection reject\n";
+                        socket_.close();
+                    } else {
+                        do_read();
+                    }
+                } else {
+                    socket_.close();
+                }
+            });
     }
 
     void do_read() {
         auto self(shared_from_this());
+        in.open("./test_case/" + clients[index].testFile);
+        if (!in.is_open()) {
+            cout << clients[index].testFile << " open fail\n";
+            socket_.close();
+        }
         socket_.async_read_some(
             boost::asio::buffer(data_, max_length),
             [this, self](boost::system::error_code ec, std::size_t length) {
@@ -321,12 +356,12 @@ int main() {
         printhttp();
         boost::asio::io_context io_context;
 
-		for (int i = 0; i < clients.size(); i++) {
-			if(clients[i].hostName!="" && clients[i].port != "" && clients[i].testFile!="")
-			{
-				std::make_shared<shellClient>(io_context, i)->start();
-			}
-		}
+        for (int i = 0; i < clients.size(); i++) {
+            if (clients[i].hostName != "" && clients[i].port != "" &&
+                clients[i].testFile != "") {
+                std::make_shared<shellClient>(io_context, i)->start();
+            }
+        }
 
         io_context.run();
     } catch (std::exception &e) {
