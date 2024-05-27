@@ -303,6 +303,7 @@ class session : public std::enable_shared_from_this<session> {
             if (ipFirewall[i] == "*")
                 continue;
             if (ipFirewall[i] != ipDst[i]) {
+                cout << ipFirewall[i] << " : " << ipDst[i] << '\n';
                 cout << "not match firewall\n";
                 accept = false;
                 break;
