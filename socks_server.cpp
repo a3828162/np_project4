@@ -111,9 +111,9 @@ class session : public std::enable_shared_from_this<session> {
                     // cout << "\n-------------\n";
                     // cout << to_string((unsigned int)(data_[2] << 8) |
                     // data_[3]); cout << "\n--------------\n";
-
+                    cout << "Before Reply: " << request.reply << '\n';
                     parse_request(length);
-                    cerr << "Reply: " << request.reply << '\n';
+                    cout << "Reply: " << request.reply << '\n';
                     if (request.reply != "Reject") {
                         install_firewall_rule();
                     }
@@ -303,7 +303,7 @@ class session : public std::enable_shared_from_this<session> {
             if (ipFirewall[i] == "*")
                 continue;
             if (ipFirewall[i] != ipDst[i]) {
-                cerr << "not match firewall\n";
+                cout << "not match firewall\n";
                 accept = false;
                 break;
             }
