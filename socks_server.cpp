@@ -340,11 +340,9 @@ class server {
   private:
     void signal_child_handler() {
         signal_.async_wait([this](boost::system::error_code ec, int signo) {
-            if (acceptor_.is_open()) {
-                while (waitpid(-1, NULL, WNOHANG) > 0)
-                    ;
-                signal_child_handler();
-            }
+            while (waitpid(-1, NULL, WNOHANG) > 0)
+                ;
+            signal_child_handler();
         });
     }
 
