@@ -126,11 +126,12 @@ class session : public std::enable_shared_from_this<session> {
             [this, self](boost::system::error_code ec,
                          tcp::resolver::results_type result) {
                 if (!ec) {
+                    replyFormat[0] = 0;
+                    request.d_IP = result->endpoint().address().to_string();
                     if (request.reply != "Reject") {
                         install_firewall_rule();
                     }
-                    replyFormat[0] = 0;
-                    request.d_IP = result->endpoint().address().to_string();
+
                     do_print_info();
                     if (request.reply == "Accept") {
                         replyFormat[1] = 90;
