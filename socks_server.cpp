@@ -2,10 +2,10 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
-#include <sstream>
 #include <iostream>
 #include <map>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -29,19 +29,19 @@ class session : public std::enable_shared_from_this<session> {
   public:
     session(tcp::socket socket, boost::asio::io_context &io_context)
         : socketSrc(std::move(socket)), socketDst(io_context),
-          io_context_(io_context), resolver_(io_context) {}
+          io_context_(io_context), resolver_(io_context),
+          acceptor_(io_context) {}
 
     void start() { do_read(); }
 
   private:
-    
-    void do_print_info(){
-            cout << "<S_IP>: " << request.s_IP << '\n' << flush;
-            cout << "<S_PORT>: " << request.s_Port << '\n' << flush;
-            cout << "<D_IP>: " << request.d_IP << '\n' << flush;
-            cout << "<D_PORT>: " << request.d_Port << '\n' << flush;
-            cout << "<Command>: " << request.command << '\n' << flush;
-            cout << "<Reply>: " << request.reply << '\n' << flush;
+    void do_print_info() {
+        cout << "<S_IP>: " << request.s_IP << '\n' << flush;
+        cout << "<S_PORT>: " << request.s_Port << '\n' << flush;
+        cout << "<D_IP>: " << request.d_IP << '\n' << flush;
+        cout << "<D_PORT>: " << request.d_Port << '\n' << flush;
+        cout << "<Command>: " << request.command << '\n' << flush;
+        cout << "<Reply>: " << request.reply << '\n' << flush;
     }
 
     void do_read() {
@@ -51,18 +51,19 @@ class session : public std::enable_shared_from_this<session> {
             boost::asio::buffer(data_, max_length),
             [this, self](boost::system::error_code ec, std::size_t length) {
                 if (!ec) {
-                    if(length == 0) exit(0);
+                    if (length == 0)
+                        exit(0);
                     // cout << "-------------\n";
                     // cout << "length: " << length << endl;
                     // for (int i=0;i<length;++i){
                     //     cout << (int)data_[i] << ' ';
                     // }
                     // cout << "\n-------------\n";
-                    // cout << to_string((unsigned int)(data_[2] << 8) | data_[3]);
-                    // cout << "\n--------------\n";
+                    // cout << to_string((unsigned int)(data_[2] << 8) |
+                    // data_[3]); cout << "\n--------------\n";
 
                     parse_request(length);
-                    if(request.reply != "Reject"){
+                    if (request.reply != "Reject") {
                         install_firewall_rule();
                     }
 
@@ -78,7 +79,7 @@ class session : public std::enable_shared_from_this<session> {
             [this, self](boost::system::error_code ec,
                          tcp::resolver::results_type result) {
                 if (!ec) {
-                    replyFormat[0] = 0; 
+                    replyFormat[0] = 0;
                     request.d_IP = result->endpoint().address().to_string();
                     do_print_info();
                     if (request.reply == "Accept") {
@@ -88,7 +89,7 @@ class session : public std::enable_shared_from_this<session> {
                         } else {
                             do_bind();
                         }
-                    } else if(request.reply == "Reject") {
+                    } else if (request.reply == "Reject") {
                         replyFormat[1] = 91;
                         do_write_reply();
                         socketSrc.close();
@@ -121,10 +122,11 @@ class session : public std::enable_shared_from_this<session> {
 
     void do_bind() {
         // give port 0 it will randomely assign a port
-        tcp::acceptor acceptor_(io_context_, tcp::endpoint(tcp::v4(), 0));
+        // tcp::acceptor acceptor_(io_context_, tcp::endpoint(tcp::v4(), 0));
+        acceptor_.bind(tcp::endpoint(tcp::v4(), 0));
         acceptor_.listen();
         unsigned int port = acceptor_.local_endpoint().port();
-        //cout << "port: " << port << '\n' << flush;
+        // cout << "port: " << port << '\n' << flush;
         replyFormat[2] = (port >> 8) & 0x000000FF;
         replyFormat[3] = port & 0x000000FF;
         do_write_reply();
@@ -133,7 +135,6 @@ class session : public std::enable_shared_from_this<session> {
         do_read_src();
         do_read_dst();
     }
-
 
     void do_write_reply() {
         auto self(shared_from_this());
@@ -203,7 +204,7 @@ class session : public std::enable_shared_from_this<session> {
             });
     }
 
-    void close_both_side_socket(){
+    void close_both_side_socket() {
         socketSrc.close();
         socketDst.close();
     }
@@ -212,7 +213,7 @@ class session : public std::enable_shared_from_this<session> {
         request.reply = "Reject";
         ifstream in("./socks.conf");
         if (!in.is_open()) {
-            //cout << "File open fail!\n";
+            // cout << "File open fail!\n";
             return;
         }
         string rule = "";
@@ -220,7 +221,8 @@ class session : public std::enable_shared_from_this<session> {
             vector<string> tmp;
             split_string(tmp, rule, ' ');
 
-            if (tmp[0] != "permit" || (tmp[1] == "c" && request.cd == 2) || (tmp[1] == "b" && request.cd == 1))
+            if (tmp[0] != "permit" || (tmp[1] == "c" && request.cd == 2) ||
+                (tmp[1] == "b" && request.cd == 1))
                 continue;
 
             vector<string> ipFirewall;
@@ -235,7 +237,7 @@ class session : public std::enable_shared_from_this<session> {
         }
     }
 
-    bool adsl(vector<string> &ipFirewall, vector<string> &ipDst ){
+    bool adsl(vector<string> &ipFirewall, vector<string> &ipDst) {
         bool accept = true;
         for (int i = 0; i < ipFirewall.size(); i++) {
             if (ipFirewall[i] == "*")
@@ -246,7 +248,7 @@ class session : public std::enable_shared_from_this<session> {
             }
         }
         return accept;
-    }    
+    }
 
     void split_string(vector<string> &output, string &input, char key) {
         stringstream ss(input);
@@ -263,7 +265,7 @@ class session : public std::enable_shared_from_this<session> {
             request.reply = "Reject";
             // cerr << "not match sock4 least length\n";
             return;
-        } 
+        }
 
         request.vn = data_[0];
         if (request.vn != 4) {
@@ -271,11 +273,11 @@ class session : public std::enable_shared_from_this<session> {
             // cerr << "version not 4\n";
             return;
         }
-            
+
         request.cd = data_[1];
-        if(request.cd == 1){
+        if (request.cd == 1) {
             request.command = "CONNECT";
-        } else if(request.cd == 2){
+        } else if (request.cd == 2) {
             request.command = "BIND";
         } else {
             request.reply = "Reject";
@@ -286,7 +288,8 @@ class session : public std::enable_shared_from_this<session> {
         request.s_IP = socketSrc.remote_endpoint().address().to_string();
         request.s_Port = to_string(socketSrc.remote_endpoint().port());
 
-        if (data_[4] == 0 && data_[5] == 0 && data_[6] == 0 && data_[7] != 0) { // sock4A
+        if (data_[4] == 0 && data_[5] == 0 && data_[6] == 0 &&
+            data_[7] != 0) { // sock4A
             int index = 8;
             while (data_[index] != 0)
                 index++;
@@ -294,16 +297,19 @@ class session : public std::enable_shared_from_this<session> {
             request.d_IP = "";
             while (data_[index] != 0)
                 request.d_IP.push_back(data_[index++]);
-            
+
         } else { // sock4
-            request.d_IP = to_string((unsigned int)data_[4]) + "." + to_string((unsigned int)data_[5])
-                             + "." + to_string((unsigned int)data_[6]) + "." + to_string((unsigned int)data_[7]);
+            request.d_IP = to_string((unsigned int)data_[4]) + "." +
+                           to_string((unsigned int)data_[5]) + "." +
+                           to_string((unsigned int)data_[6]) + "." +
+                           to_string((unsigned int)data_[7]);
         }
         request.d_Port = to_string((unsigned int)(data_[2] << 8) | data_[3]);
     }
 
     tcp::socket socketSrc;
     tcp::socket socketDst;
+    tcp::acceptor acceptor_;
     tcp::resolver resolver_;
     boost::asio::io_context &io_context_;
     socksRequestStruct request;
