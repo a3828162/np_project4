@@ -13,12 +13,9 @@ except:
     test_cases = []
 test_case_menu = ''.join([f'<option value="{test_case}">{test_case}</option>' for test_case in test_cases])
 
-DOMAIN = '192.168.56.110'
-hosts = '192.168.56.110'
-host_menu = ''.join([f'<option value="{hosts}">{hosts}</option>'])
-# DOMAIN = 'cs.nycu.edu.tw'
-# hosts = [f'nplinux{i + 1}' for i in range(5)] + [f'npbsd{i + 1}' for i in range(5)]
-# host_menu = ''.join([f'<option value="{host}.{DOMAIN}">{host}</option>' for host in hosts])
+DOMAIN = 'cs.nycu.edu.tw'
+hosts = [f'nplinux{i + 1}' for i in range(5)] + [f'npbsd{i + 1}' for i in range(5)]
+host_menu = ''.join([f'<option value="{host}.{DOMAIN}">{host}</option>' for host in hosts])
 
 print('Content-type: text/html', end='\r\n\r\n')
 
