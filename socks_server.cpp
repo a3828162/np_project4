@@ -302,6 +302,7 @@ class session : public std::enable_shared_from_this<session> {
             if (ipFirewall[i] == "*")
                 continue;
             if (ipFirewall[i] != ipDst[i]) {
+                cerr << "not match firewall\n";
                 accept = false;
                 break;
             }
