@@ -113,6 +113,7 @@ class session : public std::enable_shared_from_this<session> {
                     // data_[3]); cout << "\n--------------\n";
 
                     parse_request(length);
+                    cerr << "Reply: " << request.reply << '\n';
                     if (request.reply != "Reject") {
                         install_firewall_rule();
                     }
