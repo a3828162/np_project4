@@ -44,6 +44,56 @@ class session : public std::enable_shared_from_this<session> {
         cout << "<Reply>: " << request.reply << '\n' << flush;
     }
 
+    void parse_request(size_t length) {
+        for (int i = 2; i < 8; i++)
+            replyFormat[i] = 0;
+
+        if (length < 9) {
+            request.reply = "Reject";
+            // cerr << "not match sock4 least length\n";
+            return;
+        }
+
+        request.vn = data_[0];
+        if (request.vn != 4) {
+            request.reply = "Reject";
+            // cerr << "version not 4\n";
+            return;
+        }
+
+        request.cd = data_[1];
+        if (request.cd == 1) {
+            request.command = "CONNECT";
+        } else if (request.cd == 2) {
+            request.command = "BIND";
+        } else {
+            request.reply = "Reject";
+            // cerr << "cd not 1 or 2\n";
+            return;
+        }
+
+        request.s_IP = socketSrc.remote_endpoint().address().to_string();
+        request.s_Port = to_string(socketSrc.remote_endpoint().port());
+
+        if (data_[4] == 0 && data_[5] == 0 && data_[6] == 0 &&
+            data_[7] != 0) { // sock4A
+            int index = 8;
+            while (data_[index] != 0)
+                index++;
+            index++;
+            request.d_IP = "";
+            while (data_[index] != 0)
+                request.d_IP.push_back(data_[index++]);
+
+        } else { // sock4
+            request.d_IP = to_string((unsigned int)data_[4]) + "." +
+                           to_string((unsigned int)data_[5]) + "." +
+                           to_string((unsigned int)data_[6]) + "." +
+                           to_string((unsigned int)data_[7]);
+        }
+        request.d_Port = to_string((unsigned int)(data_[2] << 8) | data_[3]);
+    }
+
     void do_read() {
         auto self(shared_from_this());
         memset(data_, '\0', sizeof(data_));
@@ -145,16 +195,6 @@ class session : public std::enable_shared_from_this<session> {
         do_read_dst();
     }
 
-    void do_write_reply() {
-        auto self(shared_from_this());
-        boost::asio::async_write(
-            socketSrc, boost::asio::buffer(replyFormat, 8),
-            [this, self](boost::system::error_code ec, size_t length) {
-                if (!ec) {
-                }
-            });
-    }
-
     void do_read_src() {
         auto self(shared_from_this());
         memset(data_, '\0', sizeof(data_));
@@ -213,6 +253,16 @@ class session : public std::enable_shared_from_this<session> {
             });
     }
 
+    void do_write_reply() {
+        auto self(shared_from_this());
+        boost::asio::async_write(
+            socketSrc, boost::asio::buffer(replyFormat, 8),
+            [this, self](boost::system::error_code ec, size_t length) {
+                if (!ec) {
+                }
+            });
+    }
+
     void close_both_side_socket() {
         socketSrc.close();
         socketDst.close();
@@ -264,56 +314,6 @@ class session : public std::enable_shared_from_this<session> {
         string token;
         while (getline(ss, token, key))
             output.push_back(token);
-    }
-
-    void parse_request(size_t length) {
-        for (int i = 2; i < 8; i++)
-            replyFormat[i] = 0;
-
-        if (length < 9) {
-            request.reply = "Reject";
-            // cerr << "not match sock4 least length\n";
-            return;
-        }
-
-        request.vn = data_[0];
-        if (request.vn != 4) {
-            request.reply = "Reject";
-            // cerr << "version not 4\n";
-            return;
-        }
-
-        request.cd = data_[1];
-        if (request.cd == 1) {
-            request.command = "CONNECT";
-        } else if (request.cd == 2) {
-            request.command = "BIND";
-        } else {
-            request.reply = "Reject";
-            // cerr << "cd not 1 or 2\n";
-            return;
-        }
-
-        request.s_IP = socketSrc.remote_endpoint().address().to_string();
-        request.s_Port = to_string(socketSrc.remote_endpoint().port());
-
-        if (data_[4] == 0 && data_[5] == 0 && data_[6] == 0 &&
-            data_[7] != 0) { // sock4A
-            int index = 8;
-            while (data_[index] != 0)
-                index++;
-            index++;
-            request.d_IP = "";
-            while (data_[index] != 0)
-                request.d_IP.push_back(data_[index++]);
-
-        } else { // sock4
-            request.d_IP = to_string((unsigned int)data_[4]) + "." +
-                           to_string((unsigned int)data_[5]) + "." +
-                           to_string((unsigned int)data_[6]) + "." +
-                           to_string((unsigned int)data_[7]);
-        }
-        request.d_Port = to_string((unsigned int)(data_[2] << 8) | data_[3]);
     }
 
     tcp::socket socketSrc;
