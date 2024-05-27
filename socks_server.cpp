@@ -123,7 +123,15 @@ class session : public std::enable_shared_from_this<session> {
     void do_bind() {
         // give port 0 it will randomely assign a port
         // tcp::acceptor acceptor_(io_context_, tcp::endpoint(tcp::v4(), 0));
-        acceptor_.bind(tcp::endpoint(tcp::v4(), 0));
+        boost::system::error_code ec;
+        tcp::endpoint endpoint_(tcp::v4(), 0);
+        acceptor_.open(endpoint_.protocol());
+        acceptor_.bind(endpoint_, ec);
+        if (ec) {
+            cerr << "bind error code: " << ec.message() << '\n';
+            return;
+        }
+
         acceptor_.listen();
         unsigned int port = acceptor_.local_endpoint().port();
         // cout << "port: " << port << '\n' << flush;
