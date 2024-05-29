@@ -148,7 +148,7 @@ class shellClient : public std::enable_shared_from_this<shellClient> {
             [this, self](boost::system::error_code ec, tcp::endpoint ed) {
                 if (!ec) {
 
-                    do_socks();
+                    do_socks_request();
                     in.open("./test_case/" + clients[index].testFile);
                     if (!in.is_open()) {
                         cout << clients[index].testFile << " open fail\n";
@@ -162,7 +162,7 @@ class shellClient : public std::enable_shared_from_this<shellClient> {
             });
     }
 
-    void do_socks() {
+    void do_socks_request() {
         unsigned char request[4096];
         unsigned char reply[8];
 
