@@ -10,6 +10,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <utility>
+#include<sys/shm.h>
+#include<sys/mman.h>
 
 using boost::asio::ip::tcp;
 using namespace std;
@@ -24,6 +26,14 @@ struct socksRequestStruct {
     string command;
     string reply;
 };
+
+struct srcIP {
+    int ip[4];
+    bool alive;
+    int count;
+};
+int shmSrcIP;
+srcIP *srcIPPtr;
 
 class session : public std::enable_shared_from_this<session> {
   public:
@@ -42,6 +52,66 @@ class session : public std::enable_shared_from_this<session> {
         cout << "<D_PORT>: " << request.d_Port << '\n' << flush;
         cout << "<Command>: " << request.command << '\n' << flush;
         cout << "<Reply>: " << request.reply << '\n' << flush;
+    }
+
+    void do_demo(){
+        int index = find();
+        if(index == -1){
+            int empIndex = findempty();
+            srcIPPtr[empIndex].alive = true;
+            vector<string> iptrans;
+            split_string(iptrans, request.s_IP, '.');
+            for(int i=0;i<4;++i) srcIPPtr[empIndex].ip[i] = stoi(iptrans[i]);
+            index = empIndex;
+            cout << "-----------------\n";
+            cout << "enterThisFunc: " << endl;
+            cout << "-----------------\n";
+        }
+        
+        srcIPPtr[index].count++;
+        cout << "-----------------\n";
+        cout << "Index: " << index << endl;
+        cout << "Src IP count:" << srcIPPtr[index].count << endl;
+        cout << "-----------------\n";
+        if(srcIPPtr[index].count >= 4){
+            cout << "exceed connection count\n";
+            exit(0);
+        }
+    }
+
+    int find(){
+        for(int i=0;i<30;++i) {
+            if(srcIPPtr[i].alive && com(i)) return i;
+        }
+
+        return -1;
+    }
+
+    int findempty(){
+        for(int i=0;i<30;++i) {
+            if(srcIPPtr[i].alive == false){
+
+                srcIPPtr[i].alive = true;
+                cout << "i: " << i << endl;
+                return i;
+            } 
+        }
+
+        return -1;
+    }
+
+    bool com(int index) {
+        vector<string> iptrans;
+        split_string(iptrans, request.s_IP, '.');
+        bool b = true;
+
+        for(int i=0;i<4;++i){
+            cout << "-----------------\n";
+            cout << "left: " << srcIPPtr[index].ip[i] << " : " << "right: " <<  stoi(iptrans[i])<< endl;
+            cout << "-----------------\n";
+            if(srcIPPtr[index].ip[i] != stoi(iptrans[i])) b = false;
+        } 
+        return b;
     }
 
     void parse_request(size_t length) {
@@ -113,7 +183,7 @@ class session : public std::enable_shared_from_this<session> {
                     // data_[3]); cout << "\n--------------\n";
                     // cout << "Before Reply: " << request.reply << '\n';
                     parse_request(length);
-
+                    if(request.cd == 1) do_demo();
                     do_resolver();
                 }
             });
@@ -349,6 +419,7 @@ class server {
         : acceptor_(io_context, tcp::endpoint(tcp::v4(), port)),
           io_context_(io_context), signal_(io_context, SIGCHLD) {
         acceptor_.set_option(boost::asio::socket_base::reuse_address(true));
+
         signal_child_handler();
         do_accept();
     }
@@ -367,6 +438,7 @@ class server {
                                       tcp::socket socket) {
             if (!ec) {
                 io_context_.notify_fork(boost::asio::io_context::fork_prepare);
+
                 int pid;
                 pid = fork();
                 if (pid == 0) {
@@ -391,6 +463,15 @@ class server {
 };
 
 int main(int argc, char *argv[]) {
+    shmSrcIP = shm_open("SrcIP", O_CREAT | O_RDWR, 0666);
+    ftruncate(shmSrcIP, 30 * sizeof(srcIP));
+    srcIPPtr = (srcIP *)mmap(NULL, 30 * sizeof(srcIP), PROT_READ | PROT_WRITE, MAP_SHARED, shmSrcIP, 0);
+
+    for(int i=0;i<30;++i){
+        srcIPPtr[i].count = 0;
+        srcIPPtr[i].alive = false;
+        for(int j=0;j<4;++j) srcIPPtr[i].ip[j] = 0;
+    }
     try {
         if (argc != 2) {
             std::cerr << "No input port\n";
